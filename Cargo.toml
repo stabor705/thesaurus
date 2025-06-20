@@ -1,0 +1,9 @@
+[package]
+name = "thesaurus"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+tokio = { version = "1.45.1", features = ["full"] }
+nom = "8.0.0"
