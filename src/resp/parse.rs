@@ -8,16 +8,18 @@ use nom::multi::count;
 use nom::sequence::{preceded, terminated};
 use nom::IResult;
 use nom::Parser;
+use std::num::ParseIntError;
 use std::str;
+use std::str::Utf8Error;
 
 const CRLF: &[u8] = b"\r\n";
 const ERR_PREFIX: &[u8] = b"-ERR ";
 
 #[derive(Debug, PartialEq)]
 enum RespValue<'a> {
-    String(&'a [u8]),
+    String(&'a str),
     Integer(i64),
-    Error(&'a [u8]),
+    Error(&'a str),
     Array(Vec<RespValue<'a>>),
 }
 
@@ -36,30 +38,44 @@ fn line(input: &[u8]) -> IResult<&[u8], &[u8]> {
     terminated(take_until(CRLF), tag(CRLF)).parse(input)
 }
 
-fn string(input: &[u8]) -> IResult<&[u8], &[u8]> {
-    preceded(char('+'), line).parse(input)
+fn string_from_bytes(input: &[u8]) -> Result<&str, Utf8Error> {
+    str::from_utf8(input)
+}
+
+fn string(input: &[u8]) -> IResult<&[u8], &str> {
+    map_res(preceded(char('+'), line), string_from_bytes).parse(input)
+}
+
+fn decimal_integer(input: &str) -> Result<i64, ParseIntError> {
+    i64::from_str_radix(input, 10)
+}
+
+fn decimal_size(input: &str) -> Result<usize, ParseIntError> {
+    usize::from_str_radix(input, 10)
 }
 
 fn integer(input: &[u8]) -> IResult<&[u8], i64> {
-    map_res(preceded(char(':'), line), |s: &[u8]| {
-        str::from_utf8(s).unwrap().parse::<i64>()
-    })
+    map_res(
+        map_res(preceded(char(':'), line), string_from_bytes),
+        decimal_integer,
+    )
     .parse(input)
 }
 
-fn error(input: &[u8]) -> IResult<&[u8], &[u8]> {
-    preceded(tag(ERR_PREFIX), line).parse(input)
+fn error(input: &[u8]) -> IResult<&[u8], &str> {
+    map_res(preceded(tag(ERR_PREFIX), line), string_from_bytes).parse(input)
 }
 
-fn bulk_string(input: &[u8]) -> IResult<&[u8], &[u8]> {
+fn bulk_string(input: &[u8]) -> IResult<&[u8], &str> {
     let (input, length) = bulk_string_length_prefix(input)?;
-    terminated(take(length), tag(CRLF)).parse(input)
+    map_res(terminated(take(length), tag(CRLF)), string_from_bytes).parse(input)
 }
 
 fn bulk_string_length_prefix(input: &[u8]) -> IResult<&[u8], usize> {
-    map_res(preceded(char('$'), line), |s: &[u8]| {
-        str::from_utf8(s).unwrap().parse::<usize>()
-    })
+    map_res(
+        map_res(preceded(char('$'), line), string_from_bytes),
+        decimal_size,
+    )
     .parse(input)
 }
 
@@ -90,7 +106,7 @@ mod tests {
     fn test_parse_string() {
         let input = b"+OK\r\n";
         let result = resp(input);
-        assert_eq!(result.unwrap().1, RespValue::String(b"OK"));
+        assert_eq!(result.unwrap().1, RespValue::String("OK"));
     }
 
     #[test]
@@ -104,7 +120,7 @@ mod tests {
     fn test_parse_error() {
         let input = b"-ERR some error message\r\n";
         let result = resp(input);
-        assert_eq!(result.unwrap().1, RespValue::Error(b"some error message"));
+        assert_eq!(result.unwrap().1, RespValue::Error("some error message"));
     }
 
     #[test]
@@ -118,7 +134,7 @@ mod tests {
     fn test_parse_bulk_string() {
         let input = b"$12\r\nHello World!\r\n";
         let result = resp(input);
-        assert_eq!(result.unwrap().1, RespValue::String(b"Hello World!"));
+        assert_eq!(result.unwrap().1, RespValue::String("Hello World!"));
     }
 
     #[test]
@@ -127,7 +143,7 @@ mod tests {
         let result = resp(input);
         assert_eq!(
             result.unwrap().1,
-            RespValue::Array(vec![RespValue::String(b"foo"), RespValue::String(b"bar")])
+            RespValue::Array(vec![RespValue::String("foo"), RespValue::String("bar")])
         );
     }
 }
