@@ -2,6 +2,7 @@
 pub enum Command<'a> {
     Set { key: &'a str, value: &'a str },
     Get { key: &'a str },
+    Del { key: &'a str },
 }
 
 impl<'a> Command<'a> {
@@ -26,14 +27,21 @@ impl<'a> Command<'a> {
                 Ok(Command::Get { key: parts[1] })
             }
 
-            _ => Err(CommandError::InvalidCommand),
+            "DEL" => {
+                if parts.len() < 2 {
+                    return Err(CommandError::MissingArguments);
+                }
+                Ok(Command::Del { key: parts[1] })
+            }
+
+            _ => Err(CommandError::UnknownCommand),
         }
     }
 }
 
 #[derive(Debug, PartialEq)]
 enum CommandError {
-    InvalidCommand,
+    UnknownCommand,
     MissingArguments,
 }
 
@@ -59,5 +67,12 @@ mod tests {
         let parts = vec!["GET", "mykey"];
         let command = Command::from_parts(parts);
         assert_eq!(Ok(Command::Get { key: "mykey" }), command);
+    }
+
+    #[test]
+    fn test_del_command_from_parts() {
+        let parts = vec!["DEL", "mykey"];
+        let command = Command::from_parts(parts);
+        assert_eq!(Ok(Command::Del { key: "mykey" }), command);
     }
 }
